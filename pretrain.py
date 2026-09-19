@@ -10,7 +10,6 @@ import json
 import torch
 import torch.distributed as dist
 from torch import nn
-from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
 import tqdm
@@ -19,16 +18,12 @@ import coolname
 import hydra
 import pydantic
 from omegaconf import DictConfig
-from adam_atan2 import AdamATan2
+from adam_atan2_pytorch.foreach import AdamAtan2
 
 from puzzle_dataset import PuzzleDataset, PuzzleDatasetConfig, PuzzleDatasetMetadata
 from utils.functions import load_model_class, get_model_source_path
 from models.sparse_embedding import CastedSparseEmbeddingSignSGD_Distributed
 from models.ema import EMAHelper
-
-# adam-atan2 0.0.3 calls the old name, removed after torch 2.14
-if not hasattr(Optimizer, "_cuda_graph_capture_health_check"):
-    Optimizer._cuda_graph_capture_health_check = Optimizer._accelerator_graph_capture_health_check
 
 
 class LossConfig(pydantic.BaseModel):
@@ -153,11 +148,12 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
     # Optimizers and lr
     if config.arch.puzzle_emb_ndim == 0:
         optimizers = [
-            AdamATan2(
+            AdamAtan2(
                 model.parameters(),
-                lr=0,  # Needs to be set by scheduler
+                lr=1e-8,  # Needs to be set by scheduler; adam-atan2-pytorch rejects 0
                 weight_decay=config.weight_decay,
-                betas=(config.beta1, config.beta2)
+                betas=(config.beta1, config.beta2),
+                a=1.0  # scale of the original fused adam-atan2 (package default 1.27)
             )
         ]
         optimizer_lrs = [
@@ -183,11 +179,12 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
                 weight_decay=config.puzzle_emb_weight_decay,
                 world_size=world_size
             ),
-            AdamATan2(
+            AdamAtan2(
                 model.parameters(),
-                lr=0,  # Needs to be set by scheduler
+                lr=1e-8,  # Needs to be set by scheduler; adam-atan2-pytorch rejects 0
                 weight_decay=config.weight_decay,
-                betas=(config.beta1, config.beta2)
+                betas=(config.beta1, config.beta2),
+                a=1.0  # scale of the original fused adam-atan2 (package default 1.27)
             )
         ]
         optimizer_lrs = [
