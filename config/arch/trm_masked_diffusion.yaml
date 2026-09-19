@@ -1,0 +1,28 @@
+name: recursive_reasoning.trm_diffusion@TinyRecursiveReasoningModel_ACTV1Diffusion
+loss:
+  name: losses@ACTLossHead
+  loss_type: stablemax_cross_entropy
+
+halt_exploration_prob: 0.1
+halt_max_steps: 16 # also the number of denoising steps at eval
+
+H_cycles: 3
+L_cycles: 6
+
+H_layers: 0
+L_layers: 2
+
+hidden_size: 512
+num_heads: 8  # min(2, hidden_size // 64)
+expansion: 4
+
+puzzle_emb_ndim: ${.hidden_size}
+
+pos_encodings: rope
+forward_dtype: bfloat16
+
+mlp_t: False # use mlp on L instead of transformer
+puzzle_emb_len: 16 # if non-zero, its specified to this value
+
+diffusion: masked # [MASK] noise, a token is locked once unmasked (baseline)
+confidence_threshold: 0.5 # stablemax probability at which a canvas position takes the prediction
