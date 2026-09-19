@@ -1,0 +1,16 @@
+CLAUDE.md
+trm_env/
+Docs/
+
+__pycache__/
+.pytest_cache/
+
+# build_*_dataset.py output
+data/
+# pretrain.py default checkpoint_path, hydra run dir, wandb local dir
+checkpoints/
+outputs/
+wandb/
+
+.env
+config.py
