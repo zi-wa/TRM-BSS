@@ -10,6 +10,7 @@ import json
 import torch
 import torch.distributed as dist
 from torch import nn
+from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
 import tqdm
@@ -24,6 +25,10 @@ from puzzle_dataset import PuzzleDataset, PuzzleDatasetConfig, PuzzleDatasetMeta
 from utils.functions import load_model_class, get_model_source_path
 from models.sparse_embedding import CastedSparseEmbeddingSignSGD_Distributed
 from models.ema import EMAHelper
+
+# adam-atan2 0.0.3 calls the old name, removed after torch 2.14
+if not hasattr(Optimizer, "_cuda_graph_capture_health_check"):
+    Optimizer._cuda_graph_capture_health_check = Optimizer._accelerator_graph_capture_health_check
 
 
 class LossConfig(pydantic.BaseModel):
