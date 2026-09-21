@@ -4,7 +4,7 @@ loss:
   loss_type: stablemax_cross_entropy
 
 halt_exploration_prob: 0.1
-halt_max_steps: 16 # also the number of denoising steps at eval
+halt_max_steps: 16 # = denoising steps at eval
 
 H_cycles: 3
 L_cycles: 6
@@ -24,5 +24,5 @@ forward_dtype: bfloat16
 mlp_t: False # use mlp on L instead of transformer
 puzzle_emb_len: 16 # if non-zero, its specified to this value
 
-diffusion: uniform # random-token noise, low-confidence tokens are re-noised (DiffusionGemma)
-confidence_threshold: 0.5 # stablemax probability at which a canvas position takes the prediction
+diffusion: uniform # random-token noise
+confidence_threshold: 0.5 # min prob to accept a prediction

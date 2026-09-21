@@ -150,10 +150,10 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
         optimizers = [
             AdamAtan2(
                 model.parameters(),
-                lr=1e-8,  # Needs to be set by scheduler; adam-atan2-pytorch rejects 0
+                lr=1e-8,  # Needs to be set by scheduler, must be > 0
                 weight_decay=config.weight_decay,
                 betas=(config.beta1, config.beta2),
-                a=1.0  # scale of the original fused adam-atan2 (package default 1.27)
+                a=1.0  # match original adam-atan2 (default 1.27)
             )
         ]
         optimizer_lrs = [
@@ -181,10 +181,10 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
             ),
             AdamAtan2(
                 model.parameters(),
-                lr=1e-8,  # Needs to be set by scheduler; adam-atan2-pytorch rejects 0
+                lr=1e-8,  # Needs to be set by scheduler, must be > 0
                 weight_decay=config.weight_decay,
                 betas=(config.beta1, config.beta2),
-                a=1.0  # scale of the original fused adam-atan2 (package default 1.27)
+                a=1.0  # match original adam-atan2 (default 1.27)
             )
         ]
         optimizer_lrs = [
@@ -617,7 +617,7 @@ def launch(hydra_config: DictConfig):
             if config.ema:
                 ema_helper.update(train_state.model)
 
-        # wandb may be offline; None here means no train batch ran (dataset smaller than global_batch_size)
+        # for wandb offline; None = no train batch ran
         if RANK == 0:
             print("TRAIN METRICS", json.dumps(last_train_metrics, default=float))
 

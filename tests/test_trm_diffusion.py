@@ -60,7 +60,7 @@ def test_uniform_train_canvas_is_partially_noised_answer():
     torch.manual_seed(0)
     canvas = model.initial_canvas(labels)
 
-    # E[kept] = E[1 - t] + E[t] / V = 0.5 + 0.5 / 12 with t ~ U(0, 1)
+    # E[kept] = 0.5 + 0.5 / V for t ~ U(0, 1)
     kept = (canvas == labels).float().mean().item()
     assert abs(kept - (0.5 + 0.5 / VOCAB_SIZE)) < 0.02
 
@@ -93,7 +93,7 @@ def test_uniform_threshold_above_one_renoises_every_position():
     torch.manual_seed(0)
     carry, outputs = model(model.initial_carry(batch), batch)
 
-    # Fresh noise matches the prediction only by chance (1 / V)
+    # noise matches only by chance (1 / V)
     matches = (carry.canvas == outputs["logits"].argmax(-1)).float().mean().item()
     assert matches < 0.3
 

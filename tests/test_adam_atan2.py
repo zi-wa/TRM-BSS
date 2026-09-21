@@ -7,7 +7,7 @@ BETAS = (0.9, 0.95)
 
 
 def original_adam_atan2_step(param, grad, exp_avg, exp_avg_sq, step):
-    # Update rule of the fused adam-atan2 0.0.3 kernel (csrc/adam_atan2.cu) that pretrain.py used before
+    # fused adam-atan2 0.0.3 kernel (csrc/adam_atan2.cu)
     beta1, beta2 = BETAS
     param.mul_(1 - LR * WEIGHT_DECAY)
     exp_avg.lerp_(grad, 1 - beta1)
@@ -17,7 +17,7 @@ def original_adam_atan2_step(param, grad, exp_avg, exp_avg_sq, step):
 
 
 def make_optimizer(param, lr):
-    # Same arguments as pretrain.py, then the scheduler sets lr before each step
+    # same args as pretrain.py; lr comes from the scheduler
     optimizer = AdamAtan2([param], lr=1e-8, weight_decay=WEIGHT_DECAY, betas=BETAS, a=1.0)
     for group in optimizer.param_groups:
         group["lr"] = lr
@@ -26,22 +26,22 @@ def make_optimizer(param, lr):
 
 def test_matches_original_adam_atan2_once_bias_correction_settles():
     torch.manual_seed(0)
-    # float64 so rounding does not hide the comparison
+    # float64 to keep rounding out
     param = torch.nn.Parameter(torch.randn(1024, dtype=torch.float64))
     exp_avg, exp_avg_sq = torch.zeros_like(param), torch.zeros_like(param)
     optimizer = make_optimizer(param, LR)
 
     for step in range(1, 151):
         grad = torch.randn(1024, dtype=torch.float64) * 0.01 + 0.002
-        # Both rules start from the same param every step, so only the update rule is compared
+        # same start param every step, compare the update rule only
         param_before = param.detach().clone()
         reference = param_before.clone()
         original_adam_atan2_step(reference, grad, exp_avg, exp_avg_sq, step)
         param.grad = grad
         optimizer.step()
 
-    # Bias correction 1 is inside atan2 here and outside in the original; the gap vanishes once beta1 ** step ~ 0
-    # Absolute tolerance: updates are ~1e-5 but weight decay and the atan2 term nearly cancel on some elements
+    # bias correction differs (inside vs outside atan2) until beta1 ** step ~ 0
+    # atol: weight decay and the atan2 term nearly cancel on some elements
     assert torch.allclose(param.detach() - param_before, reference - param_before, rtol=0, atol=1e-10)
 
 
