@@ -12,11 +12,11 @@ from models.recursive_reasoning.trm import (
     TinyRecursiveReasoningModel_ACTV1_Inner,
 )
 
-# TRM + discrete diffusion on the answer canvas; each ACT step is one denoising step over the whole canvas.
-# uniform: DiffusionGemma's uniform state diffusion, noise is random vocab tokens and low-confidence tokens are re-noised
-# masked: baseline, noise is [MASK] and a token is locked once unmasked
+# TRM + discrete diffusion on the answer canva
+# uniform: DiffusionGemma's uniform state diffusion
+# masked: baseline
 
-# Output logit of a locked token (masked): stablemax probability ~0.999 and constant, so no gradient flows there
+# Output logit of a locked token
 LOCKED_LOGIT = 100.0
 
 
@@ -27,31 +27,27 @@ class TinyRecursiveReasoningModel_ACTV1DiffusionCarry:
     steps: torch.Tensor
     halted: torch.Tensor
 
-    canvas: torch.Tensor  # B x L, current noisy answer tokens
-    canvas_probs: torch.Tensor  # B x L x V, previous prediction for self-conditioning
+    canvas: torch.Tensor  # B x L
+    canvas_probs: torch.Tensor  # B x L x V
 
     current_data: Dict[str, torch.Tensor]
 
 
 class TinyRecursiveReasoningModel_ACTV1DiffusionConfig(TinyRecursiveReasoningModel_ACTV1Config):
     diffusion: Literal["uniform", "masked"]
-    confidence_threshold: float  # canvas takes the prediction where its probability >= this
+    confidence_threshold: float
 
 
 class TinyRecursiveReasoningModel_ACTV1Diffusion_Inner(TinyRecursiveReasoningModel_ACTV1_Inner):
+    
     def __init__(self, config: TinyRecursiveReasoningModel_ACTV1DiffusionConfig) -> None:
         super().__init__(config)
-        # Own table: canvas and question tokens are summed at the same position, a shared table could not tell them apart
-        # masked adds [MASK] as the last id (= vocab_size)
         num_canvas_tokens = self.config.vocab_size + 1 if self.config.diffusion == "masked" else self.config.vocab_size
         self.embed_canvas = CastedEmbedding(num_canvas_tokens, self.config.hidden_size, init_std=1.0 / self.embed_scale, cast_to=self.forward_dtype)
 
     def forward(self, carry: TinyRecursiveReasoningModel_ACTV1InnerCarry, batch: Dict[str, torch.Tensor], canvas: torch.Tensor, canvas_probs: torch.Tensor) -> Tuple[TinyRecursiveReasoningModel_ACTV1InnerCarry, torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        seq_info = dict(
-            cos_sin=self.rotary_emb() if hasattr(self, "rotary_emb") else None,
-        )
+        seq_info = dict(cos_sin=self.rotary_emb() if hasattr(self, "rotary_emb") else None,)
 
-        # Self-conditioning: previous probabilities x embedding table = expected embedding of the last prediction
         canvas_weight = self.embed_canvas.embedding_weight.to(self.forward_dtype)
         canvas_embeddings = self.embed_canvas(canvas) + canvas_probs.to(self.forward_dtype) @ canvas_weight[:self.config.vocab_size]
         canvas_embeddings = F.pad(canvas_embeddings, (0, 0, self.puzzle_emb_len, 0))  # puzzle embedding prefix has no canvas
@@ -82,7 +78,7 @@ class TinyRecursiveReasoningModel_ACTV1Diffusion(nn.Module):
         super().__init__()
         self.config = TinyRecursiveReasoningModel_ACTV1DiffusionConfig(**config_dict)
         self.inner = TinyRecursiveReasoningModel_ACTV1Diffusion_Inner(self.config)
-        self.mask_id = self.config.vocab_size  # used by masked only
+        self.mask_id = self.config.vocab_size
 
     @property
     def puzzle_emb(self):
@@ -92,10 +88,10 @@ class TinyRecursiveReasoningModel_ACTV1Diffusion(nn.Module):
         batch_size, seq_len = batch["inputs"].shape
 
         return TinyRecursiveReasoningModel_ACTV1DiffusionCarry(
-            inner_carry=self.inner.empty_carry(batch_size),  # Empty is expected, it will be reseted in first pass as all sequences are halted.
+            inner_carry=self.inner.empty_carry(batch_size),
 
             steps=torch.zeros((batch_size, ), dtype=torch.int32),
-            halted=torch.ones((batch_size, ), dtype=torch.bool),  # Default to halted
+            halted=torch.ones((batch_size, ), dtype=torch.bool),
 
             canvas=torch.empty((batch_size, seq_len), dtype=torch.int32),
             canvas_probs=torch.empty((batch_size, seq_len, self.config.vocab_size), dtype=torch.float32),
@@ -108,13 +104,12 @@ class TinyRecursiveReasoningModel_ACTV1Diffusion(nn.Module):
             noise = torch.full_like(labels, self.mask_id)
         else:
             noise = torch.randint_like(labels, self.config.vocab_size)
-        # Inference starts from pure noise and never reads the labels
         if not self.training:
             return noise
 
         # Training: replace a fraction t ~ U(0, 1) of the answer with noise, t drawn per sample
         noise_level = torch.rand((labels.shape[0], 1), device=labels.device)
-        answer = torch.where(labels == IGNORE_LABEL_ID, 0, labels)  # ignored labels are PAD (id 0) in every dataset builder
+        answer = torch.where(labels == IGNORE_LABEL_ID, 0, labels)
         return torch.where(torch.rand(labels.shape, device=labels.device) < noise_level, noise, answer)
 
     def forward(self, carry: TinyRecursiveReasoningModel_ACTV1DiffusionCarry, batch: Dict[str, torch.Tensor]) -> Tuple[TinyRecursiveReasoningModel_ACTV1DiffusionCarry, Dict[str, torch.Tensor]]:
