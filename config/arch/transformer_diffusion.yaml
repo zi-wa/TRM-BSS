@@ -1,0 +1,21 @@
+name: recursive_reasoning.transformer_diffusion@TransformerDiffusion
+loss:
+  name: losses@ACTLossHead
+  loss_type: stablemax_cross_entropy
+
+halt_exploration_prob: 0.1
+halt_max_steps: 16
+
+H_cycles: 1  # kept for compatibility
+H_layers: 8
+
+hidden_size: 512
+num_heads: 8
+expansion: 4
+
+puzzle_emb_ndim: ${.hidden_size}
+
+pos_encodings: rope
+
+diffusion: uniform
+confidence_threshold: 0.5

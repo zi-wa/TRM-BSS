@@ -12,7 +12,7 @@ from models.recursive_reasoning.trm import (
     TinyRecursiveReasoningModel_ACTV1_Inner,
 )
 
-# TRM + discrete diffusion on the answer canva
+# TRM + discrete diffusion on the answer canvas
 # uniform: DiffusionGemma's uniform state diffusion
 # masked: baseline
 
@@ -50,7 +50,7 @@ class TinyRecursiveReasoningModel_ACTV1Diffusion_Inner(TinyRecursiveReasoningMod
 
         canvas_weight = self.embed_canvas.embedding_weight.to(self.forward_dtype)
         canvas_embeddings = self.embed_canvas(canvas) + canvas_probs.to(self.forward_dtype) @ canvas_weight[:self.config.vocab_size]
-        canvas_embeddings = F.pad(canvas_embeddings, (0, 0, self.puzzle_emb_len, 0))  # puzzle embedding prefix has no canvas
+        canvas_embeddings = F.pad(canvas_embeddings, (0, 0, self.puzzle_emb_len, 0))  # no canvas on puzzle emb positions
 
         input_embeddings = self._input_embeddings(batch["inputs"], batch["puzzle_identifiers"]) + self.embed_scale * canvas_embeddings
 
@@ -72,12 +72,14 @@ class TinyRecursiveReasoningModel_ACTV1Diffusion_Inner(TinyRecursiveReasoningMod
 
 
 class TinyRecursiveReasoningModel_ACTV1Diffusion(nn.Module):
-    """ACT wrapper that also carries the diffusion canvas between steps."""
+    """ACT wrapper with a diffusion canvas."""
+    config_cls = TinyRecursiveReasoningModel_ACTV1DiffusionConfig
+    inner_cls = TinyRecursiveReasoningModel_ACTV1Diffusion_Inner
 
     def __init__(self, config_dict: dict):
         super().__init__()
-        self.config = TinyRecursiveReasoningModel_ACTV1DiffusionConfig(**config_dict)
-        self.inner = TinyRecursiveReasoningModel_ACTV1Diffusion_Inner(self.config)
+        self.config = self.config_cls(**config_dict)
+        self.inner = self.inner_cls(self.config)
         self.mask_id = self.config.vocab_size
 
     @property
@@ -107,7 +109,7 @@ class TinyRecursiveReasoningModel_ACTV1Diffusion(nn.Module):
         if not self.training:
             return noise
 
-        # Training: replace a fraction t ~ U(0, 1) of the answer with noise, t drawn per sample
+        # train: noise a random fraction t ~ U(0, 1) of the answer
         noise_level = torch.rand((labels.shape[0], 1), device=labels.device)
         answer = torch.where(labels == IGNORE_LABEL_ID, 0, labels)
         return torch.where(torch.rand(labels.shape, device=labels.device) < noise_level, noise, answer)
@@ -118,7 +120,7 @@ class TinyRecursiveReasoningModel_ACTV1Diffusion(nn.Module):
         new_steps = torch.where(carry.halted, 0, carry.steps)
         new_current_data = {k: torch.where(carry.halted.view((-1, ) + (1, ) * (batch[k].ndim - 1)), batch[k], v) for k, v in carry.current_data.items()}
 
-        # New sequences start from a fresh canvas without self-conditioning
+        # fresh canvas for new sequences
         canvas = torch.where(carry.halted.view(-1, 1), self.initial_canvas(new_current_data["labels"]), carry.canvas)
         canvas_probs = torch.where(carry.halted.view(-1, 1, 1), 0, carry.canvas_probs)
 
@@ -126,7 +128,7 @@ class TinyRecursiveReasoningModel_ACTV1Diffusion(nn.Module):
         new_inner_carry, logits, (q_halt_logits, q_continue_logits) = self.inner(new_inner_carry, new_current_data, canvas, canvas_probs)
 
         if self.config.diffusion == "masked":
-            # Carry-over unmasking: an unmasked canvas token is the output, so the loss only trains masked positions
+            # carry-over unmasking: locked tokens are the output
             locked = canvas != self.mask_id
             locked_one_hot = F.one_hot(torch.where(locked, canvas, 0).long(), self.config.vocab_size).bool()
             locked_logits = torch.where(locked_one_hot, LOCKED_LOGIT, -LOCKED_LOGIT).to(logits.dtype)
@@ -139,16 +141,13 @@ class TinyRecursiveReasoningModel_ACTV1Diffusion(nn.Module):
         }
 
         with torch.no_grad():
-            # Denoising step
-            # stablemax, not softmax, because that is the distribution the loss trains
+            # denoise with stablemax probs, same as the loss
             probs = torch.exp(log_stablemax(logits.to(torch.float32), dim=-1))
             confidence, prediction = probs.max(dim=-1)
             confident = confidence >= self.config.confidence_threshold
             if self.config.diffusion == "masked":
-                # Unmask confident positions; unmasked tokens stay locked
                 new_canvas = torch.where((canvas == self.mask_id) & confident, prediction.to(canvas.dtype), canvas)
             else:
-                # Confident positions take the prediction, the rest are re-noised
                 new_canvas = torch.where(confident, prediction.to(canvas.dtype), torch.randint_like(canvas, self.config.vocab_size))
 
             # Step
@@ -159,7 +158,7 @@ class TinyRecursiveReasoningModel_ACTV1Diffusion(nn.Module):
 
             # if training, and ACT is enabled
             # NOTE: During evaluation, always use max steps, this is to guarantee the same halting steps inside a batch for batching purposes
-            # Only the no_ACT_continue halting rule: the Q-continue branch in trm.py unpacks 5 values from a 3-tuple
+            # no Q-continue branch (broken in trm.py)
             if self.training and (self.config.halt_max_steps > 1):
                 halted = halted | (q_halt_logits > 0)
 
